@@ -1,0 +1,480 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState } from '@/store/store';
+import { logout } from '@/store/slices/authSlice';
+import { useGetFilterOptionsQuery } from '@/store/services/productsApi';
+import { ShoppingCart, Search, ChevronDown, Menu, X, User, LogOut, Edit3, ShoppingBag, ShieldCheck, Award, Truck } from 'lucide-react';
+import Cookies from 'js-cookie';
+import { toast } from 'react-hot-toast';
+import { StoreAuthModal } from '@/components/storefront/StoreAuthModal';
+import { ProfileEditModal } from '@/components/storefront/ProfileEditModal';
+import { PakistanFlag } from '@/components/ui/PakistanFlag';
+
+export function StorefrontHeader() {
+  const router = useRouter();
+  const dispatch = useDispatch();
+  const searchParams = useSearchParams();
+  const cartItems = useSelector((state: RootState) => state.cart.items);
+  const { user, isAuthenticated } = useSelector((state: RootState) => state.auth);
+  const totalCartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  // Pre-fill from URL on mount
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
+  const [showShopMenu, setShowShopMenu] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [showAnnouncement, setShowAnnouncement] = useState(true);
+
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstRender = useRef(true);
+  const isUrlSync = useRef(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const categoriesMenuRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Lock body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileMenuOpen]);
+
+  const { data: filterOptions, isLoading: loadingCategories } = useGetFilterOptionsQuery(undefined);
+  const categories: string[] = filterOptions?.categories || [];
+
+  // Close user and categories dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+      if (categoriesMenuRef.current && !categoriesMenuRef.current.contains(e.target as Node)) {
+        setShowShopMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Keep input in sync when the URL search param changes externally
+  useEffect(() => {
+    const urlSearch = searchParams.get('search') || '';
+    isUrlSync.current = true;
+    setSearchQuery(urlSearch);
+  }, [searchParams]);
+
+  // Debounce: navigate 1 second after the user stops typing
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (isUrlSync.current) {
+      isUrlSync.current = false;
+      return;
+    }
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+
+    debounceTimer.current = setTimeout(() => {
+      const trimmed = searchQuery.trim();
+      if (trimmed) {
+        router.push(`/shop?search=${encodeURIComponent(trimmed)}`);
+      } else if (window.location.pathname === '/shop') {
+        router.push('/shop');
+      }
+    }, 1000);
+
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    const trimmed = searchQuery.trim();
+    if (trimmed) {
+      router.push(`/shop?search=${encodeURIComponent(trimmed)}`);
+    } else if (window.location.pathname === '/shop') {
+      router.push('/shop');
+    }
+    setMobileMenuOpen(false);
+  };
+
+  const handleLogout = () => {
+    dispatch(logout());
+    Cookies.remove('admin_token', { path: '/' });
+    Cookies.remove('admin_role', { path: '/' });
+    setShowUserMenu(false);
+    toast.success('Logged out successfully');
+    router.push('/');
+  };
+
+  return (
+    <header className="w-full bg-white sticky top-0 z-50 border-b border-gray-100 shadow-sm">
+      {/* ── Top Announcement Banner: Free Delivery All Over Pakistan ── */}
+      {showAnnouncement && (
+        <div className="w-full bg-black text-white py-2 px-4 text-xs font-['Satoshi'] tracking-wide">
+          <div className="max-w-[1440px] mx-auto flex items-center justify-between relative">
+            <div className="flex-1 text-center flex items-center justify-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 font-bold">
+                <Truck className="w-3.5 h-3.5 text-amber-400" />
+                <span>Free Delivery All Over Pakistan</span>
+                <PakistanFlag className="w-4 h-3 rounded-[2px] overflow-hidden shrink-0" />
+              </span>
+              <span className="hidden sm:inline text-white/40">•</span>
+              <span className="hidden sm:inline text-white/80 font-medium">Cash on Delivery Available</span>
+              <Link
+                href="/shop"
+                className="underline font-bold text-white hover:text-amber-400 transition-colors ml-1"
+              >
+                Shop Now
+              </Link>
+            </div>
+            <button
+              onClick={() => setShowAnnouncement(false)}
+              className="text-white/60 hover:text-white transition-colors p-1"
+              aria-label="Dismiss banner"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-20 py-3.5 flex items-center justify-between gap-4">
+
+        {/* Mobile hamburger */}
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="lg:hidden p-2 hover:bg-gray-100 rounded-xl transition-colors"
+          aria-label="Toggle menu"
+        >
+          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
+
+        {/* Brand */}
+        <Link
+          href="/"
+          className="flex items-center shrink-0"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/images/94.webp"
+            alt="Logo"
+            className="h-8 sm:h-10 w-auto object-contain mix-blend-multiply"
+          />
+        </Link>
+
+        {/* Desktop nav */}
+        <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-gray-700">
+          <Link href="/" className="hover:text-black transition-colors">
+            Home
+          </Link>
+          <div
+            className="relative"
+            ref={categoriesMenuRef}
+            onMouseLeave={() => setShowShopMenu(false)}
+          >
+            <button
+              onClick={() => setShowShopMenu((prev) => !prev)}
+              onMouseEnter={() => setShowShopMenu(true)}
+              className="flex items-center gap-1.5 hover:text-black transition-colors py-1 cursor-pointer select-none"
+            >
+              Categories{' '}
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                  showShopMenu ? 'rotate-180' : 'rotate-0'
+                }`}
+              />
+            </button>
+            {showShopMenu && (
+              <div
+                className="absolute top-full left-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-150"
+              >
+                {loadingCategories ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="mx-3 my-1.5 h-5 bg-gray-100 rounded animate-pulse" />
+                  ))
+                ) : categories.length > 0 ? (
+                  categories.map((cat) => (
+                    <Link
+                      key={cat}
+                      href={`/shop?category=${encodeURIComponent(cat)}`}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-black transition-colors capitalize"
+                      onClick={() => setShowShopMenu(false)}
+                    >
+                      {cat}
+                    </Link>
+                  ))
+                ) : (
+                  <span className="block px-4 py-2 text-xs text-gray-400">No categories yet</span>
+                )}
+              </div>
+            )}
+          </div>
+          <Link href="/shop?isOnSale=true" className="hover:text-black transition-colors">
+            On Sale
+          </Link>
+          <Link href="/shop?newArrivals=true&sort=newest" className="hover:text-black transition-colors">
+            New Arrivals
+          </Link>
+          <Link href="/shop" className="hover:text-black transition-colors">
+            All Products
+          </Link>
+          <Link href="/orders" className="hover:text-black transition-colors">
+            My Orders
+          </Link>
+        </nav>
+
+        {/* Search bar */}
+        <form onSubmit={handleSearchSubmit} className="flex-1 max-w-[460px] hidden sm:block">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-gray-100 rounded-full py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-black/20 placeholder:text-gray-400"
+            />
+          </div>
+        </form>
+
+        {/* Icons row */}
+        <div className="flex items-center gap-1">
+          {/* Cart icon */}
+          <Link
+            href="/cart"
+            className="relative p-2 hover:bg-gray-100 rounded-full transition-colors"
+            aria-label="Cart"
+          >
+            <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6 text-gray-800" />
+            {totalCartCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 bg-black text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                {totalCartCount > 9 ? '9+' : totalCartCount}
+              </span>
+            )}
+          </Link>
+
+          {/* User / Account Dropdown */}
+          <div className="relative" ref={userMenuRef}>
+            <button
+              onClick={() => {
+                if (isAuthenticated) {
+                  setShowUserMenu(!showUserMenu);
+                } else {
+                  setAuthModalOpen(true);
+                }
+              }}
+              className="p-1.5 hover:bg-gray-100 rounded-full transition-colors flex items-center gap-1 cursor-pointer"
+              aria-label="User Account"
+            >
+              {mounted && isAuthenticated && user?.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.avatar}
+                  alt={user.name || 'User'}
+                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover border border-gray-300"
+                />
+              ) : (
+                <div className={`p-1 sm:p-1.5 rounded-full ${mounted && isAuthenticated ? 'bg-black text-white' : 'text-gray-800'}`}>
+                  <User className="w-5 h-5 sm:w-5 sm:h-5" />
+                </div>
+              )}
+            </button>
+
+            {/* Dropdown Menu when Logged In */}
+            {isAuthenticated && showUserMenu && (
+              <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-gray-100 py-3 z-50 font-['Satoshi'] animate-in fade-in duration-150">
+                {/* User details header */}
+                <div className="px-4 pb-3 mb-2 border-b border-gray-100 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gray-100 border flex items-center justify-center overflow-hidden shrink-0">
+                    {user?.avatar ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <User className="w-5 h-5 text-gray-600" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-sm text-black truncate">{user?.name}</p>
+                    <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                    {user?.loyaltyPoints !== undefined && (
+                      <div className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full mt-1">
+                        <Award className="w-3 h-3" /> {user.loyaltyPoints} Points
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col text-xs text-gray-700 font-medium">
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      setProfileModalOpen(true);
+                    }}
+                    className="w-full px-4 py-2.5 flex items-center gap-2.5 hover:bg-gray-50 hover:text-black transition-colors text-left"
+                  >
+                    <Edit3 className="w-4 h-4 text-gray-500" />
+                    <span>Edit Profile</span>
+                  </button>
+
+                  <Link
+                    href="/orders"
+                    onClick={() => setShowUserMenu(false)}
+                    className="w-full px-4 py-2.5 flex items-center gap-2.5 hover:bg-gray-50 hover:text-black transition-colors text-left"
+                  >
+                    <ShoppingBag className="w-4 h-4 text-gray-500" />
+                    <span>My Orders</span>
+                  </Link>
+
+                  {(user?.role === 'Admin' || user?.role === 'Super Admin') && (
+                    <Link
+                      href="/admin"
+                      onClick={() => setShowUserMenu(false)}
+                      className="w-full px-4 py-2.5 flex items-center gap-2.5 hover:bg-gray-50 hover:text-black transition-colors text-left"
+                    >
+                      <ShieldCheck className="w-4 h-4 text-purple-600" />
+                      <span className="font-bold text-purple-700">Admin Dashboard</span>
+                    </Link>
+                  )}
+
+                  <div className="my-1 border-t border-gray-100" />
+
+                  {/* Logout Button */}
+                  <button
+                    onClick={handleLogout}
+                    className="w-full px-4 py-2.5 flex items-center gap-2.5 text-red-600 hover:bg-red-50 font-bold transition-colors text-left"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Log Out</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Mobile sidebar overlay ── */}
+      {/* Backdrop */}
+      <div
+        className={`lg:hidden fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${
+          mobileMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={() => setMobileMenuOpen(false)}
+        aria-hidden="true"
+      />
+
+      {/* Sidebar panel */}
+      <div
+        className={`lg:hidden fixed inset-y-0 left-0 z-[70] w-[80vw] max-w-sm bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Mobile navigation"
+      >
+        {/* Sidebar header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <Link href="/" onClick={() => setMobileMenuOpen(false)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/images/94.webp"
+              alt="Logo"
+              className="h-8 w-auto object-contain mix-blend-multiply"
+            />
+          </Link>
+          <button
+            onClick={() => setMobileMenuOpen(false)}
+            className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+            aria-label="Close menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="px-4 py-3 border-b border-gray-100">
+          <form onSubmit={handleSearchSubmit} className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-gray-100 rounded-full py-2.5 pl-9 pr-4 text-sm outline-none focus:ring-2 focus:ring-black/10"
+            />
+          </form>
+        </div>
+
+        {/* Nav links — scrollable */}
+        <nav className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-0.5">
+          {[
+            { href: '/', label: 'Home' },
+            { href: '/shop', label: 'All Products' },
+            ...categories.map((c) => ({
+              href: `/shop?category=${encodeURIComponent(c)}`,
+              label: c,
+            })),
+            { href: '/shop?isOnSale=true', label: 'On Sale' },
+            { href: '/shop?newArrivals=true&sort=newest', label: 'New Arrivals' },
+            { href: '/orders', label: 'My Orders' },
+            { href: '/faq/my-account', label: 'My Account & Profile' },
+          ].map(({ href, label }) => (
+            <Link
+              key={label}
+              href={href}
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-3 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50 rounded-xl transition-colors capitalize border-b border-gray-50 last:border-0"
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+
+        {/* Bottom auth action */}
+        <div className="px-3 py-4 border-t border-gray-100">
+          {isAuthenticated ? (
+            <button
+              onClick={handleLogout}
+              className="w-full px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors text-left flex items-center gap-2"
+            >
+              <LogOut className="w-4 h-4" /> Log Out
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setAuthModalOpen(true);
+              }}
+              className="w-full px-4 py-3 text-sm font-bold text-black bg-black text-white hover:bg-gray-800 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <User className="w-4 h-4" /> Log In / Register
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Auth Modal & Profile Edit Modal */}
+      <StoreAuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+      <ProfileEditModal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} />
+    </header>
+  );
+}

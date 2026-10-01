@@ -1,0 +1,316 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/store/store';
+import { useGetAllUsersQuery, useUpdateUserRoleMutation } from '@/store/services/authApi';
+import { TableSkeleton } from '@/components/ui/skeletons/TableSkeleton';
+import { Users, Award, Shield, ShieldCheck, User, Search, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { useLoading } from '@/context/LoadingContext';
+import Pagination from '@/components/ui/Pagination';
+import { toast } from 'react-hot-toast';
+
+type UserRole = 'User' | 'Admin' | 'Super Admin';
+
+const ROLE_STYLES: Record<UserRole, string> = {
+  'User': 'bg-gray-100 text-gray-700',
+  'Admin': 'bg-blue-50 text-blue-700 border border-blue-200',
+  'Super Admin': 'bg-purple-50 text-purple-700 border border-purple-200',
+};
+
+const ROLE_ICONS: Record<UserRole, React.ReactNode> = {
+  'User': <User className="w-3 h-3" />,
+  'Admin': <Shield className="w-3 h-3" />,
+  'Super Admin': <ShieldCheck className="w-3 h-3" />,
+};
+
+function RoleBadge({ role }: { role: string }) {
+  const r = role as UserRole;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+        ROLE_STYLES[r] ?? 'bg-gray-100 text-gray-700'
+      }`}
+    >
+      {ROLE_ICONS[r] ?? null}
+      {role}
+    </span>
+  );
+}
+
+const ROLES: UserRole[] = ['User', 'Admin', 'Super Admin'];
+
+function RoleDropdown({
+  userId,
+  currentRole,
+  onChanged,
+}: {
+  userId: string;
+  currentRole: string;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [updateUserRole, { isLoading }] = useUpdateUserRoleMutation();
+
+  const handleSelect = async (role: UserRole) => {
+    if (role === currentRole) { setOpen(false); return; }
+    try {
+      await updateUserRole({ id: userId, role }).unwrap();
+      toast.success(`Role changed to ${role}`);
+      onChanged();
+    } catch (err: any) {
+      toast.error(err?.data?.message || 'Failed to update role');
+    } finally {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onClick={() => setOpen(!open)}
+        disabled={isLoading}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border border-dashed border-gray-300 hover:border-black bg-white text-gray-600 hover:text-black transition-all disabled:opacity-60"
+      >
+        {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ChevronDown className="w-3 h-3" />}
+        Change
+      </button>
+
+      {open && (
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden w-36 py-1">
+            {ROLES.map((role) => (
+              <button
+                key={role}
+                onClick={() => handleSelect(role)}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors hover:bg-gray-50 ${
+                  role === currentRole ? 'font-bold text-black bg-gray-50' : 'text-gray-700'
+                }`}
+              >
+                <span className="w-4 flex items-center justify-center">
+                  {role === currentRole ? <Check className="w-3 h-3 text-green-500" /> : ROLE_ICONS[role]}
+                </span>
+                {role}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function AdminUsersPage() {
+  const { setLoading } = useLoading();
+  const { user: currentUser } = useSelector((state: RootState) => state.auth);
+  const isSuperAdmin = currentUser?.role === 'Super Admin';
+
+  // Local UI state
+  const [searchInput, setSearchInput] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Debounced search — only fires API after 350ms of inactivity
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchInput), 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Reset pagination whenever filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, roleFilter]);
+
+  const { data: users = [], isLoading, isFetching, refetch } = useGetAllUsersQuery(
+    { search: debouncedSearch || undefined, role: roleFilter || undefined },
+    { refetchOnMountOrArgChange: true },
+  );
+
+  useEffect(() => {
+    setLoading(isLoading || isFetching);
+    return () => setLoading(false);
+  }, [isLoading, isFetching, setLoading]);
+
+  const totalUsers = users.length;
+  const adminCount = users.filter((u: any) => u.role === 'Admin' || u.role === 'Super Admin').length;
+  const totalPoints = users.reduce((sum: number, u: any) => sum + (u.loyaltyPoints || 0), 0);
+
+  // Client-side pagination (data already filtered server-side)
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(users.length / itemsPerPage);
+  const paginatedUsers = users.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+
+  return (
+    <div className="flex flex-col gap-6 font-['Rubik']">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
+          <p className="text-xs text-gray-400 font-['Open_Sans']">
+            All registered accounts — filtered &amp; fetched live from the database
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {isSuperAdmin && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold">
+              <ShieldCheck className="w-3.5 h-3.5" /> Super Admin — Role Management Enabled
+            </span>
+          )}
+          <div className="text-xs bg-white border border-gray-200 px-4 py-2 rounded-xl text-gray-600 font-semibold w-fit">
+            <Users className="w-3.5 h-3.5 inline mr-1.5 text-blue-500" />
+            {totalUsers} registered user{totalUsers !== 1 ? 's' : ''}
+          </div>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+            <Users className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 font-semibold">Total Users</p>
+            <p className="text-2xl font-bold text-gray-900">{totalUsers}</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+            <Shield className="w-5 h-5 text-purple-600" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 font-semibold">Admins</p>
+            <p className="text-2xl font-bold text-gray-900">{adminCount}</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+            <Award className="w-5 h-5 text-amber-600" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 font-semibold">Total Loyalty Points</p>
+            <p className="text-2xl font-bold text-gray-900">{totalPoints.toLocaleString()}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Server-Side Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+          <input
+            id="user-search"
+            type="text"
+            placeholder="Search by name or email… (server-side)"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className="w-full pl-9 pr-4 bg-white border border-gray-200 rounded-xl py-2.5 text-xs font-semibold outline-none focus:ring-2 focus:ring-black/20"
+          />
+          {isFetching && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+          )}
+        </div>
+        <select
+          id="user-role-filter"
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          className="bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-xs font-bold outline-none min-w-[160px]"
+        >
+          <option value="">All Roles</option>
+          <option value="User">User</option>
+          <option value="Admin">Admin</option>
+          <option value="Super Admin">Super Admin</option>
+        </select>
+      </div>
+
+      {/* Table */}
+      {isLoading ? (
+        <TableSkeleton rows={8} />
+      ) : users.length === 0 ? (
+        <div className="bg-white rounded-2xl p-12 text-center text-gray-400 text-xs font-semibold">
+          {debouncedSearch || roleFilter ? 'No users match the current filters.' : 'No users found.'}
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm overflow-x-auto">
+          <table className="w-full text-left text-xs font-['Open_Sans']">
+            <thead>
+              <tr className="border-b text-gray-400 font-bold uppercase tracking-wider">
+                <th className="pb-3">#</th>
+                <th className="pb-3">Name</th>
+                <th className="pb-3">Email</th>
+                <th className="pb-3">Role</th>
+                {isSuperAdmin && <th className="pb-3">Change Role</th>}
+                <th className="pb-3">Loyalty Points</th>
+                <th className="pb-3">Joined</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 font-semibold text-gray-700">
+              {paginatedUsers.map((user: any, idx: number) => {
+                const globalIndex = (currentPage - 1) * itemsPerPage + idx + 1;
+                return (
+                  <tr key={user._id} className="hover:bg-gray-50 transition-all">
+                    <td className="py-4 text-gray-400 font-mono">{globalIndex}</td>
+                    <td className="py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center text-xs font-bold shrink-0 uppercase">
+                          {user.name?.[0] ?? '?'}
+                        </div>
+                        <span className="font-bold text-gray-900">{user.name}</span>
+                      </div>
+                    </td>
+                    <td className="py-4 text-gray-500">{user.email}</td>
+                    <td className="py-4">
+                      <RoleBadge role={user.role} />
+                    </td>
+                    {isSuperAdmin && (
+                      <td className="py-4">
+                        {/* Cannot change own role */}
+                        {user._id === currentUser?.id || user._id === (currentUser as any)?._id ? (
+                          <span className="text-[10px] text-gray-400 italic">You</span>
+                        ) : (
+                          <RoleDropdown
+                            userId={user._id}
+                            currentRole={user.role}
+                            onChanged={refetch}
+                          />
+                        )}
+                      </td>
+                    )}
+                    <td className="py-4">
+                      <span className="flex items-center gap-1 text-amber-600 font-bold">
+                        <Award className="w-3.5 h-3.5" />
+                        {(user.loyaltyPoints ?? 0).toLocaleString()} pts
+                      </span>
+                    </td>
+                    <td className="py-4 text-gray-500">
+                      {user.createdAt
+                        ? new Date(user.createdAt).toLocaleDateString()
+                        : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalItems={users.length}
+            itemsPerPage={itemsPerPage}
+            className="mt-4"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
