@@ -1,0 +1,66 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { User, UserDocument, UserRole } from './schemas/user.schema';
+
+@Injectable()
+export class UsersService {
+  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+
+  async findAll(search?: string, role?: string) {
+    const filter: any = {};
+    if (role) {
+      filter.role = role;
+    }
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+    return this.userModel.find(filter).select('-password').exec();
+  }
+
+  async findById(id: string) {
+    const user = await this.userModel.findById(id).select('-password').exec();
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  async getLoyaltyPoints(id: string) {
+    const user = await this.findById(id);
+    return { loyaltyPoints: user.loyaltyPoints };
+  }
+
+  async addLoyaltyPoints(id: string, points: number) {
+    const user = await this.userModel
+      .findByIdAndUpdate(id, { $inc: { loyaltyPoints: points } }, { returnDocument: 'after' })
+      .select('-password');
+    return user;
+  }
+
+  async updateProfile(
+    id: string,
+    updateData: { name?: string; phone?: string; address?: string; avatar?: string },
+  ) {
+    const user = await this.userModel
+      .findByIdAndUpdate(id, { $set: updateData }, { returnDocument: 'after' })
+      .select('-password')
+      .exec();
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  async updateRole(id: string, role: string) {
+    const validRoles = Object.values(UserRole) as string[];
+    if (!validRoles.includes(role)) {
+      throw new BadRequestException(`Invalid role: ${role}. Valid roles are: ${validRoles.join(', ')}`);
+    }
+    const user = await this.userModel
+      .findByIdAndUpdate(id, { $set: { role } }, { returnDocument: 'after' })
+      .select('-password')
+      .exec();
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+}
